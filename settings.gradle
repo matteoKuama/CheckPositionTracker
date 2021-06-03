@@ -1,0 +1,3 @@
+rootProject.name = "CheckPositionTracker"
+include ':app'
+include ':CheckPositionTracker'
