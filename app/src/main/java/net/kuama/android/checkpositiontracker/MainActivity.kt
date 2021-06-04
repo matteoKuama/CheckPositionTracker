@@ -15,9 +15,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         startService(Intent(this, BackgroundService::class.java))
-        val myBroadcastReceiver = MyLocationReceiver()
+//        val myBroadcastReceiver = MyLocationReceiver()
         val intentFilter = IntentFilter(BackgroundService::class.java.name)
-        registerReceiver(myBroadcastReceiver, intentFilter)
+//        registerReceiver(myBroadcastReceiver, intentFilter)
     }
 }
 

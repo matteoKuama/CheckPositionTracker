@@ -4,7 +4,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.location.Location
+import android.os.Build
+import androidx.annotation.RequiresApi
+import io.reactivex.rxjava3.core.BackpressureStrategy
+import io.reactivex.rxjava3.core.Flowable
+import io.reactivex.rxjava3.subjects.BehaviorSubject
 import java.time.Duration
+import java.time.LocalDateTime
+import java.time.ZonedDateTime
 import java.util.*
 
 // finche' non si sistema l'import di Position
@@ -28,14 +35,14 @@ val Location.position: Position
 interface TrackerEvent {
     val travel: Travel
     var currentPosition: Position
-    var receiveAt: Date
+    var receiveAt: LocalDateTime
 }
 
 // implementation
 class OutRouteTrackerEvent(
     override val travel: Travel,
     override var currentPosition: Position,
-    override var receiveAt: Date
+    override var receiveAt: LocalDateTime
 ) : TrackerEvent {
 
 }
@@ -43,7 +50,7 @@ class OutRouteTrackerEvent(
 class MissedEtaTrackerEvent(
     override val travel: Travel,
     override var currentPosition: Position,
-    override var receiveAt: Date
+    override var receiveAt: LocalDateTime
 ) : TrackerEvent {
 
 }
@@ -51,7 +58,7 @@ class MissedEtaTrackerEvent(
 class StationaryTrackerEvent(
     override val travel: Travel,
     override var currentPosition: Position,
-    override var receiveAt: Date
+    override var receiveAt: LocalDateTime
 ) : TrackerEvent {
 
 }
@@ -59,7 +66,7 @@ class StationaryTrackerEvent(
 class LowBatteryTrackerEvent(
     override val travel: Travel,
     override var currentPosition: Position,
-    override var receiveAt: Date
+    override var receiveAt: LocalDateTime
 ) : TrackerEvent {
 
 }
@@ -67,7 +74,7 @@ class LowBatteryTrackerEvent(
 class CompletedTravelTrackerEvent(
     override val travel: Travel,
     override var currentPosition: Position,
-    override var receiveAt: Date
+    override var receiveAt: LocalDateTime
 ) : TrackerEvent {
 
 }
@@ -78,7 +85,7 @@ interface Travel {
     var status: TravelStatus
     val destination: Position
     var pauseDuration: Duration?
-    var endAt: Date
+    var endAt: LocalDateTime
 }
 
 // the user can be traveling, on pause, cancel the travel, be on emergency, has completed the travel
@@ -90,14 +97,6 @@ enum class TravelStatus {
     completed
 }
 
-// the checkPositionTracker can throw 5 types of event
-interface CheckPositionTrackerInterface {
-    fun outRouteTrackerEvent(): TrackerEvent
-    fun missedEtaTrackerEvent(): TrackerEvent
-    fun stationaryTrackerEvent(): TrackerEvent
-    fun lowBatteryTrackerEvent(): TrackerEvent
-    fun completedTravelTrackerEvent(): TrackerEvent
-}
 
 // a route is a list of positions, has a duration and a mode of traveling
 interface RouteInterface {
@@ -110,7 +109,7 @@ class Route(
     override val path: List<Position>,
     override var duration: Duration,
     override val mode: RouteMode
-) : RouteInterface{
+) : RouteInterface {
 
 }
 
@@ -123,78 +122,49 @@ enum class RouteMode {
 }
 
 
-/*
-checkPositionTracker
-    run(){
-        check...
 
-    }
- */
+// the checkPositionTracker can throw 5 types of event
+class CheckPositionTracker(private val travel: Travel, private val route: RouteInterface) :
+    BroadcastReceiver() {
 
-class CheckPositionTracker(val travel: Travel, private val route: RouteInterface) :
-    CheckPositionTrackerInterface {
+    private var subject: BehaviorSubject<TrackerEvent> = BehaviorSubject.create()
 
-
-    var actualPosition: Position = TODO()
+    var actualPosition: Position? = null
+        @RequiresApi(Build.VERSION_CODES.O)
         set(newPosition) {
+            if (newPosition == null)
+                return
             if (!isOnTrack(newPosition))
-                outRouteTrackerEvent()
+                subject.onNext(OutRouteTrackerEvent(travel, newPosition, LocalDateTime.now()))
             else if (isLate())
-                missedEtaTrackerEvent()
+                subject.onNext(MissedEtaTrackerEvent(travel, newPosition, LocalDateTime.now()))
             else if (hasCompletedTrack(newPosition))
-                completedTravelTrackerEvent()
+                subject.onNext(CompletedTravelTrackerEvent(travel, newPosition, LocalDateTime.now()))
+            else if (newPosition == actualPosition)
+                subject.onNext(StationaryTrackerEvent(travel, newPosition, LocalDateTime.now()))
             else
                 travel.status = TravelStatus.traveling
             field = newPosition
         }
 
 
-    private fun isOnTrack(actualPosition: Position): Boolean {
+    fun isOnTrack(actualPosition: Position): Boolean {
         return route.path.contains(actualPosition)
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun isLate(): Boolean {
-        return Date().after(travel.endAt)
+        return LocalDateTime.now().isAfter(travel.endAt)
     }
 
     private fun hasCompletedTrack(actualPosition: Position): Boolean {
         return route.path.last() == actualPosition
     }
 
-    override fun outRouteTrackerEvent(): TrackerEvent {
-        travel.status = TravelStatus.emergency
-        return OutRouteTrackerEvent(travel, actualPosition, Date())
-    }
-
-    override fun missedEtaTrackerEvent(): TrackerEvent {
-        travel.status = TravelStatus.emergency
-        return MissedEtaTrackerEvent(travel, actualPosition, Date())
-    }
-
-    override fun stationaryTrackerEvent(): TrackerEvent {
-        travel.status = TravelStatus.emergency
-        return StationaryTrackerEvent(travel, actualPosition, Date())
-    }
-
-    override fun lowBatteryTrackerEvent(): TrackerEvent {
-        travel.status = TravelStatus.emergency
-        return LowBatteryTrackerEvent(travel, actualPosition, Date())
-    }
-
-    override fun completedTravelTrackerEvent(): TrackerEvent {
-        travel.status = TravelStatus.completed
-        return CompletedTravelTrackerEvent(travel, actualPosition, Date())
-    }
-
-}
-
-
-// the broadcast receiver
-class MyLocationReceiver : BroadcastReceiver() {
-
-
     override fun onReceive(context: Context?, intent: Intent?) {
-        val position: Position? = intent?.position
-
+        actualPosition = intent?.position
     }
+
+    fun run(): Flowable<TrackerEvent> = subject
+        .toFlowable(BackpressureStrategy.LATEST)
 }
