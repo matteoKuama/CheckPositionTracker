@@ -1,9 +1,9 @@
 package net.kuama.android.checkpositiontracker
 
+import io.mockk.every
+import io.mockk.mockk
 import junit.framework.TestCase
-import io.mockk.*
 import java.time.LocalDateTime
-import java.util.*
 
 
 class CheckPositionTrackerTest : TestCase() {
@@ -55,7 +55,6 @@ class CheckPositionTrackerTest : TestCase() {
         val route = Route(listOf(Position(12.0, 12.0)), mockk(), mockk())
         val checkPositionTracker = CheckPositionTracker(travel, route)
         val observer = checkPositionTracker.run()
-        val slot = slot<TrackerEvent>()
         every {
             travel.endAt
         } returns mockk()
@@ -90,7 +89,7 @@ class CheckPositionTrackerTest : TestCase() {
         val observer = checkPositionTracker.run()
         every {
             travel.endAt
-        } returns LocalDateTime.of(2022,12,1, 8,12)
+        } returns LocalDateTime.of(2022, 12, 1, 8, 12)
         // Act
         val newPosition = Position(12.0, 12.0)
         checkPositionTracker.actualPosition = newPosition
@@ -99,9 +98,66 @@ class CheckPositionTrackerTest : TestCase() {
     }
 
 
-    fun testStationaryTrackerEvent() {}
+    fun testStationaryTrackerEvent() {
+        // Arrange
+        val travel = mockk<Travel>()
+        val route = Route(
+            listOf(Position(12.0, 12.0), Position(13.0, 12.0), Position(14.0, 12.0)),
+            mockk(),
+            mockk()
+        )
+        val checkPositionTracker = CheckPositionTracker(travel, route)
+        val observer = checkPositionTracker.run()
+        every {
+            travel.endAt
+        } returns LocalDateTime.of(2022, 12, 1, 8, 12)
+        // Act
+        val newPosition = Position(13.0, 12.0)
+        checkPositionTracker.actualPosition = newPosition
+        checkPositionTracker.actualPosition = newPosition
+        // Assert
+        assert(observer.test().values().last() is StationaryTrackerEvent)
+    }
 
     fun testLowBatteryTrackerEvent() {}
 
-    fun testCompletedTravelTrackerEvent() {}
+    fun testCompletedTravelTrackerEvent() {
+        // Arrange
+        val travel = mockk<Travel>()
+        val route = Route(
+            listOf(Position(12.0, 12.0), Position(13.0, 12.0), Position(14.0, 12.0)),
+            mockk(),
+            mockk()
+        )
+        val checkPositionTracker = CheckPositionTracker(travel, route)
+        val observer = checkPositionTracker.run()
+        every {
+            travel.endAt
+        } returns LocalDateTime.of(2022, 12, 1, 8, 12)
+        // Act
+        val newPosition = Position(14.0, 12.0)
+        checkPositionTracker.actualPosition = newPosition
+        // Assert
+        assert(observer.test().values().last() is CompletedTravelTrackerEvent)
+    }
+
+    fun testNotCompletedTravelTrackerEvent() {
+        // Arrange
+        val travel = mockk<Travel>()
+        val route = Route(
+            listOf(Position(12.0, 12.0), Position(13.0, 12.0), Position(14.0, 12.0)),
+            mockk(),
+            mockk()
+        )
+        val checkPositionTracker = CheckPositionTracker(travel, route)
+        val observer = checkPositionTracker.run()
+        every {
+            travel.endAt
+        } returns LocalDateTime.of(2022, 12, 1, 8, 12)
+        // Act
+        val newPosition = Position(13.0, 12.0)
+        checkPositionTracker.actualPosition = newPosition
+        // Assert
+        assert(observer.test().values().isEmpty())
+    }
 }

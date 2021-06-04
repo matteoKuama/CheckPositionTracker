@@ -142,8 +142,6 @@ class CheckPositionTracker(private val travel: Travel, private val route: RouteI
                 subject.onNext(CompletedTravelTrackerEvent(travel, newPosition, LocalDateTime.now()))
             else if (newPosition == actualPosition)
                 subject.onNext(StationaryTrackerEvent(travel, newPosition, LocalDateTime.now()))
-            else
-                travel.status = TravelStatus.traveling
             field = newPosition
         }
 
