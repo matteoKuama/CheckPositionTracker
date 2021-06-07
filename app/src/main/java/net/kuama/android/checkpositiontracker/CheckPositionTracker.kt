@@ -1,18 +1,19 @@
 package net.kuama.android.checkpositiontracker
 
+import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.location.Location
+import android.os.BatteryManager
 import android.os.Build
+import android.os.IBinder
+import android.util.Log
 import androidx.annotation.RequiresApi
-import io.reactivex.rxjava3.core.BackpressureStrategy
-import io.reactivex.rxjava3.core.Flowable
-import io.reactivex.rxjava3.subjects.BehaviorSubject
+import net.kuama.android.backgroundLocation.service.BackgroundService
 import java.time.Duration
 import java.time.LocalDateTime
-import java.time.ZonedDateTime
-import java.util.*
 
 // finche' non si sistema l'import di Position
 data class Position(val latitude: Double, val longitude: Double)
@@ -30,54 +31,24 @@ val Location.position: Position
     get() = Position(latitude = this.latitude, longitude = this.longitude)
 //
 
+const val TYPE_EXTRA = "type"
 
 // event thrown during a travel
 interface TrackerEvent {
     val travel: Travel
     var currentPosition: Position
     var receiveAt: LocalDateTime
+    val type: TrackerEventType
 }
 
-// implementation
-class OutRouteTrackerEvent(
-    override val travel: Travel,
-    override var currentPosition: Position,
-    override var receiveAt: LocalDateTime
-) : TrackerEvent {
-
+enum class TrackerEventType{
+    outRouteTrackerEvent,
+    missedEtaTrackerEvent,
+    stationaryTrackerEvent,
+    lowBatteryTrackerEvent,
+    completedTravelTrackerEvent
 }
 
-class MissedEtaTrackerEvent(
-    override val travel: Travel,
-    override var currentPosition: Position,
-    override var receiveAt: LocalDateTime
-) : TrackerEvent {
-
-}
-
-class StationaryTrackerEvent(
-    override val travel: Travel,
-    override var currentPosition: Position,
-    override var receiveAt: LocalDateTime
-) : TrackerEvent {
-
-}
-
-class LowBatteryTrackerEvent(
-    override val travel: Travel,
-    override var currentPosition: Position,
-    override var receiveAt: LocalDateTime
-) : TrackerEvent {
-
-}
-
-class CompletedTravelTrackerEvent(
-    override val travel: Travel,
-    override var currentPosition: Position,
-    override var receiveAt: LocalDateTime
-) : TrackerEvent {
-
-}
 
 
 // travel has a status, a destination, a pause duration (optional), and a end date
@@ -86,6 +57,15 @@ interface Travel {
     val destination: Position
     var pauseDuration: Duration?
     var endAt: LocalDateTime
+}
+
+class MyTravel(
+    override var status: TravelStatus,
+    override val destination: Position,
+    override var pauseDuration: Duration?,
+    override var endAt: LocalDateTime
+) : Travel{
+
 }
 
 // the user can be traveling, on pause, cancel the travel, be on emergency, has completed the travel
@@ -122,12 +102,20 @@ enum class RouteMode {
 }
 
 
-
-// the checkPositionTracker can throw 5 types of event
-class CheckPositionTracker(private val travel: Travel, private val route: RouteInterface) :
+/** CheckPositionTracker can throw 5 types of event:
+ * OutRouteTrackerEvent, MissedEtaTrackerEvent, CompletedTravelTrackerEvent, StationaryTrackerEvent, LowBatteryTrackerEvent
+ *
+ */
+class CheckPositionTracker(
+    private val travel: Travel,
+    private val route: RouteInterface,
+    private val batteryManager: BatteryManager
+) :
     BroadcastReceiver() {
 
-    private var subject: BehaviorSubject<TrackerEvent> = BehaviorSubject.create()
+/*
+qui ricevo le posizioni e decido cosa fare
+ */
 
     var actualPosition: Position? = null
         @RequiresApi(Build.VERSION_CODES.O)
@@ -135,13 +123,20 @@ class CheckPositionTracker(private val travel: Travel, private val route: RouteI
             if (newPosition == null)
                 return
             if (!isOnTrack(newPosition))
-                subject.onNext(OutRouteTrackerEvent(travel, newPosition, LocalDateTime.now()))
+                Log.d("Location", "is not on track")
+                //checkPositionService.sendTrackerEvent(TrackerEventType.outRouteTrackerEvent)
             else if (isLate())
-                subject.onNext(MissedEtaTrackerEvent(travel, newPosition, LocalDateTime.now()))
+                Log.d("Location", "is late")
+//                checkPositionService.sendTrackerEvent(TrackerEventType.missedEtaTrackerEvent)
             else if (hasCompletedTrack(newPosition))
-                subject.onNext(CompletedTravelTrackerEvent(travel, newPosition, LocalDateTime.now()))
+                Log.d("Location", "has completed track")
+//            checkPositionService.sendTrackerEvent(TrackerEventType.completedTravelTrackerEvent)
             else if (newPosition == actualPosition)
-                subject.onNext(StationaryTrackerEvent(travel, newPosition, LocalDateTime.now()))
+                Log.d("Location", "is standing")
+//                checkPositionService.sendTrackerEvent(TrackerEventType.stationaryTrackerEvent)
+            else if (isBatteryTenOrFivePercent())
+                Log.d("Location", "battery low")
+//            checkPositionService.sendTrackerEvent(TrackerEventType.lowBatteryTrackerEvent)
             field = newPosition
         }
 
@@ -151,7 +146,7 @@ class CheckPositionTracker(private val travel: Travel, private val route: RouteI
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun isLate(): Boolean {
+    fun isLate(): Boolean {
         return LocalDateTime.now().isAfter(travel.endAt)
     }
 
@@ -159,10 +154,39 @@ class CheckPositionTracker(private val travel: Travel, private val route: RouteI
         return route.path.last() == actualPosition
     }
 
-    override fun onReceive(context: Context?, intent: Intent?) {
-        actualPosition = intent?.position
+    private fun isBatteryTenOrFivePercent(): Boolean {
+        val batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return batteryLevel == 10 || batteryLevel == 5
     }
 
-    fun run(): Flowable<TrackerEvent> = subject
-        .toFlowable(BackpressureStrategy.LATEST)
+    override fun onReceive(context: Context?, intent: Intent?) {
+        actualPosition = intent?.position
+        Log.d("Location", "received new position ${actualPosition?.latitude} - ${actualPosition?.longitude}")
+    }
+
+}
+
+/*
+qui invio i broadcast con gli eventi
+ */
+class CheckPositionService: Service(){
+
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
+
+    fun sendTrackerEvent(trackerEventType: TrackerEventType){
+        Log.d("Location", "send tracker event")
+        val actionName = javaClass.name
+        val intent = Intent()
+            .also {
+                it.action = actionName
+                it.flags = Intent.FLAG_INCLUDE_STOPPED_PACKAGES
+                it.putExtra(TYPE_EXTRA, trackerEventType)
+            }
+        sendBroadcast(intent)
+    }
+
 }
