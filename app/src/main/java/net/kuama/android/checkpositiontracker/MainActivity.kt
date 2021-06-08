@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -17,8 +16,6 @@ import androidx.core.app.ActivityCompat
 import net.kuama.android.backgroundLocation.LocationRequestManager
 import net.kuama.android.backgroundLocation.service.BackgroundService
 import org.joda.time.DateTime
-import java.time.Duration
-import java.time.LocalDateTime
 
 class MainActivity : AppCompatActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
@@ -29,40 +26,32 @@ class MainActivity : AppCompatActivity() {
         //test
         val backgroundLocationIntent = Intent(this, BackgroundService::class.java)
         val startButton = findViewById<Button>(R.id.bt_location)
-            startButton.setOnClickListener {
-                // TODO Remember to ask for android.permission.ACCESS_FINE_LOCATION before starting the service
-                val intent = BLService
-                    .Builder()
-                    .eta(DateTime.now())
-                    .journey(Journey(listOf(Position(12.0, 12.0), Position(13.0, 12.0), Position(45.4064333, 11.87676))))
-                    .build(this)
-                startService(intent)
-                startService(backgroundLocationIntent)
-                val myBroadcastReceiver = BLService.LocationReceiver()
-                val intentFilter = IntentFilter(BackgroundService::class.java.name)
-                registerReceiver(myBroadcastReceiver, intentFilter)
-//                startService(Intent(this, CheckPositionService::class.java))
+        startButton.setOnClickListener {
+            // TODO Remember to ask for android.permission.ACCESS_FINE_LOCATION before starting the service
+            val intent = BLService
+                .Builder()
+                .eta(DateTime.now().plusDays(4))
+                .journey(
+                    Journey(
+                        listOf(
+                            Position(12.0, 12.0),
+                            Position(45.4064333, 11.87676),
+                            Position(13.0, 12.0)
+                        )
+                    )
+                )
+                .build(this)
+            startService(intent)
+            startService(backgroundLocationIntent)
+            val myBroadcastReceiver = BLService.LocationReceiver()
+            val intentFilter = IntentFilter(BackgroundService::class.java.name)
+            registerReceiver(myBroadcastReceiver, intentFilter)
 
 
-//                val myBroadcastReceiver = CheckPositionTracker(
-//                    MyTravel(
-//                        TravelStatus.traveling,
-//                        Position(12.0, 12.0),
-//                        null,
-//                        LocalDateTime.of(2022, 12, 12, 12, 12)
-//                    ),
-//                    Route(
-//                        listOf(Position(12.0, 12.0), Position(13.0, 12.0)),
-//                        Duration.ofDays(13),
-//                        RouteMode.cycling
-//                    ),
-//                    applicationContext.getSystemService(
-//                        BATTERY_SERVICE
-//                    ) as BatteryManager
-//                )
-//                val intentFilter = IntentFilter(BackgroundService::class.java.name)
-//                registerReceiver(myBroadcastReceiver, intentFilter)
-            }
+            val trackerReceiver = TrackerReceiver()
+            val trackerIntentFilter = IntentFilter(BLService::class.java.name)
+            registerReceiver(trackerReceiver, trackerIntentFilter)
+        }
 
         val stopButton = findViewById<Button>(R.id.bt_stop)
         stopButton.setOnClickListener {
@@ -103,11 +92,13 @@ class MainActivity : AppCompatActivity() {
 }
 
 ///test
-class MyLocationReceiver : BroadcastReceiver() {
+class TrackerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
-        val position:Position? = intent?.position
+        val status: String? = intent?.status
+        val position: Position? = intent?.position
+        val dateTime: DateTime? = intent?.date
         if (position != null) {
-            Log.d("Location", "${position.latitude}-${position.longitude}")
+            Log.d("Location", "Alert type: $status. Location: ${position.latitude}-${position.longitude}, Date: $dateTime")
         }
     }
 }

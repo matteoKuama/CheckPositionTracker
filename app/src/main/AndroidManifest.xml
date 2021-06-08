@@ -29,8 +29,7 @@
                 <action android:name="net.kuama.android.backgroundLocation.service.BackgroundService" />
             </intent-filter>
         </receiver>
-
-        <service android:name=".CheckPositionService"/>
+        <service android:name="net.kuama.android.checkpositiontracker.BLService"/>
         <service
             android:name="net.kuama.android.backgroundLocation.service.BackgroundService"
             android:foregroundServiceType="location" />
